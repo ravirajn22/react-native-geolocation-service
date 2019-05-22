@@ -9,6 +9,7 @@ import android.util.Log;
 import com.facebook.react.bridge.ActivityEventListener;
 import com.facebook.react.bridge.BaseActivityEventListener;
 import com.facebook.react.bridge.Callback;
+import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
@@ -33,7 +34,7 @@ import com.google.android.gms.tasks.Task;
 
 import java.lang.RuntimeException;
 
-public class RNFusedLocationModule extends ReactContextBaseJavaModule {
+public class RNFusedLocationModule extends ReactContextBaseJavaModule implements LifecycleEventListener {
     public static final String TAG = "RNFusedLocation";
     private static final int REQUEST_SETTINGS_SINGLE_UPDATE = 11403;
     private static final int REQUEST_SETTINGS_CONTINUOUS_UPDATE = 11404;
@@ -49,6 +50,8 @@ public class RNFusedLocationModule extends ReactContextBaseJavaModule {
     private double mMaximumAge = Double.POSITIVE_INFINITY;
     private long mTimeout = Long.MAX_VALUE;
     private float mDistanceFilter = DEFAULT_DISTANCE_FILTER;
+    private boolean mIsForeground = true;
+    private boolean mDisableTrackingWhenBackground = false;
 
     private Callback mSuccessCallback;
     private Callback mErrorCallback;
@@ -96,6 +99,8 @@ public class RNFusedLocationModule extends ReactContextBaseJavaModule {
         mFusedProviderClient = LocationServices.getFusedLocationProviderClient(reactContext);
         mSettingsClient = LocationServices.getSettingsClient(reactContext);
         reactContext.addActivityEventListener(mActivityEventListener);
+
+        reactContext.addLifecycleEventListener(this);
 
         Log.i(TAG, TAG + " initialized");
     }
@@ -215,6 +220,9 @@ public class RNFusedLocationModule extends ReactContextBaseJavaModule {
         mShowLocationDialog = options.hasKey("showLocationDialog")
             ? options.getBoolean("showLocationDialog")
             : true;
+        mDisableTrackingWhenBackground = options.hasKey("disableTrackingWhenBackground")
+                ? options.getBoolean("disableTrackingWhenBackground")
+                : false;
 
         LocationSettingsRequest locationSettingsRequest = buildLocationSettingsRequest();
 
@@ -378,8 +386,55 @@ public class RNFusedLocationModule extends ReactContextBaseJavaModule {
                 }
             };
 
+            if (mDisableTrackingWhenBackground) {
+                // When mDisableTrackingWhenBackground is true, timed correctly getLocationUpdates can be run after onHostPause
+                // hence check if the app is in foreground before calling requestLocationUpdates
+                // Also when settings is satisfied via showLocationDialog, getLocationUpdates and onHostResume() are called
+                // this check allows only one function to call requestLocationUpdates
+                if (mIsForeground) {
+                    mFusedProviderClient.requestLocationUpdates(mLocationRequest, mLocationCallback, null);
+                }
+            } else {
+                mFusedProviderClient.requestLocationUpdates(mLocationRequest, mLocationCallback, null);
+            }
+        }
+    }
+
+    // onHostResume and onHostPause are used to start and stop location tracking when user has initiated
+    // tracking location. Note these methods are called whenever App state changes.
+    // Hence check if location tracking has been started using mFusedProviderClient and mLocationCallback
+
+    @Override
+    public void onHostResume() {
+        if (!mDisableTrackingWhenBackground) {
+            return;
+        }
+        Log.w(TAG, "onHostResume: ");
+
+        mIsForeground = true;
+
+        if (mFusedProviderClient != null && mLocationCallback != null && LocationUtils.hasLocationPermission(getContext())) {
             mFusedProviderClient.requestLocationUpdates(mLocationRequest, mLocationCallback, null);
         }
+    }
+
+    @Override
+    public void onHostPause() {
+        if (!mDisableTrackingWhenBackground) {
+            return;
+        }
+        Log.w(TAG, "onHostPause: ");
+
+        mIsForeground = false;
+
+        if(mFusedProviderClient != null && mLocationCallback != null) {
+            mFusedProviderClient.removeLocationUpdates(mLocationCallback);
+        }
+    }
+
+    @Override
+    public void onHostDestroy() {
+
     }
 
     /**

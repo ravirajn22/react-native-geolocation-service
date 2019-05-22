@@ -143,6 +143,7 @@ componentDidMount() {
     | interval | `ms` | `10000` |  Interval for active location updates
     | fastestInterval | `ms` | `5000` | Fastest rate at which your application will receive location updates, which might be faster than `interval` in some situations (for example, if other applications are triggering location updates)
     | showLocationDialog | `bool` | `true` | whether to ask to enable location in Android
+    | disableTrackingWhenBackground | `bool` | `false` | (Android only) Stops location tracking when app moves to background and starts when foreground, works like iOS WhenInUse
 
 #### `clearWatch(watchId)`
  - watchId (id returned by `watchPosition`)
